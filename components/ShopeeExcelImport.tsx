@@ -1,26 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Product } from "@/types";
+import { Product, Transaction } from "@/types";
 import {
-  parseTikTokIncomeExcel,
-  importExcelIncomeData,
-  ExcelIncomeData,
-} from "@/lib/excelParser";
+  parseShopeeIncomeExcel,
+  convertShopeeDataToTransactions,
+  ShopeeExcelIncomeData,
+} from "@/lib/shopeeExcelParser";
 import { formatCurrency } from "@/lib/utils";
 
-interface ExcelImportProps {
+interface ShopeeExcelImportProps {
   products: Product[];
-  onImport: (products: Product[], transactions: any[]) => void;
+  onImport: (products: Product[], transactions: Transaction[]) => void;
 }
 
-export default function ExcelImport({ products, onImport }: ExcelImportProps) {
+export default function ShopeeExcelImport({
+  products,
+  onImport,
+}: ShopeeExcelImportProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [previewData, setPreviewData] = useState<ExcelIncomeData[]>([]);
+  const [previewData, setPreviewData] = useState<ShopeeExcelIncomeData[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
   const [defaultCost, setDefaultCost] = useState<string>("59000");
-  const [settlementPerItem, setSettlementPerItem] = useState<string>("83218");
+  const [settlementPerItem, setSettlementPerItem] = useState<string>("98125");
   const [importStats, setImportStats] = useState<{
     newProducts: number;
     newTransactions: number;
@@ -45,8 +48,8 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
     setImportStats(null);
 
     try {
-      console.log("🚀 Starting TikTok Shop Excel import...");
-      const result = await parseTikTokIncomeExcel(selectedFile);
+      console.log("🚀 Starting Shopee Excel import...");
+      const result = await parseShopeeIncomeExcel(selectedFile);
 
       console.log("📊 Parse Result:", result);
       console.log("   - Success:", result.success);
@@ -67,9 +70,9 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
           ...result.errors,
           "",
           "💡 Tips:",
-          "1. Pastikan file adalah Excel Income dari TikTok Shop Seller Center",
-          "2. Pastikan ada sheet 'Order details'",
-          "3. Pastikan ada kolom: Order ID, Total settlement amount, Order settled time",
+          "1. Pastikan file adalah Excel Income dari Shopee Seller Center",
+          "2. Pastikan ada sheet 'Income'",
+          "3. Pastikan ada kolom: No. Pesanan, Tanggal Dana Dilepaskan, Total Penghasilan",
         ]);
       }
     } catch (error) {
@@ -88,7 +91,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
         "",
         "Pastikan:",
         "1. File adalah Excel (.xlsx) yang valid",
-        "2. File dari TikTok Shop Seller Center → Finance → Income → Export",
+        "2. File dari Shopee Seller Center → Finance → Income → Export",
       ]);
     }
   };
@@ -116,11 +119,8 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
     setErrors([]);
 
     try {
-      const { transactions, products: newProducts } = importExcelIncomeData(
-        previewData,
-        cost,
-        perItem
-      );
+      const { transactions, products: newProducts } =
+        convertShopeeDataToTransactions(previewData, cost, perItem);
 
       console.log("📦 Generated Transactions:", transactions);
       console.log("📦 Generated Products:", newProducts);
@@ -167,57 +167,51 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
 
     if (isNaN(cost) || isNaN(perItem) || perItem <= 0) {
       return {
-        totalSettlement: 0,
+        totalIncome: 0,
         totalCost: 0,
         totalProfit: 0,
         totalQuantity: 0,
-        totalReturns: 0,
+        returnCount: 0,
       };
     }
 
-    let totalSettlement = 0;
+    let totalIncome = 0;
     let totalCost = 0;
     let totalQuantity = 0;
-    let totalReturns = 0;
+    let returnCount = 0;
 
     previewData.forEach((item) => {
-      if (item.isReturn) {
-        totalReturns += Math.abs(item.settlementAmount);
+      // Check if this is a return item
+      const isReturn = item.isReturn || item.totalIncome <= 0;
+
+      if (isReturn) {
+        returnCount++;
+        // Don't include return items in totals
       } else {
-        const qty = Math.round(item.settlementAmount / perItem);
-        totalSettlement += item.settlementAmount;
+        const qty = Math.round(item.totalIncome / perItem);
+        totalIncome += item.totalIncome;
         totalCost += cost * qty;
         totalQuantity += qty;
       }
     });
 
-    const totalProfit = totalSettlement - totalCost;
+    const totalProfit = totalIncome - totalCost;
 
-    return {
-      totalSettlement,
-      totalCost,
-      totalProfit,
-      totalQuantity,
-      totalReturns,
-    };
+    return { totalIncome, totalCost, totalProfit, totalQuantity, returnCount };
   };
 
   const previewTotals = calculatePreviewTotals();
 
-  // Count return items
-  const returnCount = previewData.filter((item) => item.isReturn).length;
-  const validCount = previewData.length - returnCount;
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-green-500 to-teal-500 text-white p-6 rounded-lg shadow-lg">
+      <div className="bg-gradient-to-r from-orange-500 to-pink-500 text-white p-6 rounded-lg shadow-lg">
         <h2 className="text-2xl font-bold mb-2">
-          🎵 Import TikTok Shop - Excel Income
+          🛍️ Import Shopee - Excel Income
         </h2>
-        <p className="text-green-50">
-          Khusus untuk TikTok Shop Seller. Import file Excel Income dari TikTok
-          Shop Seller Center.
+        <p className="text-orange-50">
+          Khusus untuk Shopee Seller. Import file Excel Income dari Shopee
+          Seller Center.
         </p>
       </div>
 
@@ -226,13 +220,15 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
         <h3 className="font-semibold text-blue-900 mb-2">📋 Cara Import:</h3>
         <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
           <li>
-            Login ke <strong>TikTok Shop Seller Center</strong>
+            Login ke <strong>Shopee Seller Center</strong>
           </li>
           <li>
-            Buka menu <strong>Keuangan</strong> → <strong>Transaksi</strong>
+            Buka menu <strong>Keuangan</strong> →{" "}
+            <strong>Penghasilan Saya</strong>
           </li>
           <li>
-            Klik Selesai → Klik <strong>Unduh</strong>
+            Klik <strong>Sudah Dilepas</strong> → Pilih Tanggal → Klik{" "}
+            <strong>Unduh</strong>
           </li>
           <li>Download file dan upload di sini</li>
           <li>Isi harga modal produk dan settlement per item</li>
@@ -245,7 +241,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
       {/* File Upload */}
       <div className="bg-white p-6 rounded-lg shadow">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          📂 Upload Excel Income TikTok Shop (.xlsx)
+          📂 Upload Excel Income Shopee (.xlsx)
         </label>
         <input
           type="file"
@@ -278,7 +274,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
               value={defaultCost}
               onChange={(e) => setDefaultCost(e.target.value)}
               placeholder="59000"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
             />
             <p className="text-xs text-gray-500 mt-1">
               Harga modal per 1 produk (contoh: Rp 59.000)
@@ -294,25 +290,25 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
               type="number"
               value={settlementPerItem}
               onChange={(e) => setSettlementPerItem(e.target.value)}
-              placeholder="83218"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              placeholder="98125"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Settlement amount per 1 item. Digunakan untuk menghitung quantity
+              Penghasilan per 1 item. Digunakan untuk menghitung quantity
               otomatis.
             </p>
             <p className="text-xs text-blue-600 mt-1">
-              💡 Contoh: Total Settlement Rp 166.436 ÷ Rp 83.218 = 2 qty
+              💡 Contoh: Total Penghasilan Rp 196.250 ÷ Rp 98.125 = 2 qty
             </p>
           </div>
 
           {/* Info Box */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p className="text-sm text-green-800">
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+            <p className="text-sm text-orange-800">
               <strong>📌 Catatan:</strong> Quantity akan dihitung otomatis
               berdasarkan{" "}
-              <strong>Total Settlement Amount ÷ Settlement per Item</strong>.
-              Jika berbeda-beda di file yang sama, gunakan nilai rata-rata atau
+              <strong>Total Penghasilan ÷ Settlement per Item</strong>. Jika
+              berbeda-beda di file yang sama, gunakan nilai rata-rata atau
               import terpisah per kategori produk.
             </p>
           </div>
@@ -324,8 +320,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-gray-900">
-              📊 Preview Data ({validCount} order
-              {returnCount > 0 && `, ${returnCount} return`})
+              📊 Preview Data ({previewData.length} order)
             </h3>
             <div className="text-sm text-gray-600">
               Settlement per item:{" "}
@@ -338,13 +333,13 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Order ID
+                    No. Pesanan
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Tanggal
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Settlement
+                    Total Penghasilan
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
                     Qty
@@ -361,15 +356,17 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
                 {previewData.slice(0, 10).map((item, index) => {
                   const cost = parseFloat(defaultCost);
                   const perItem = parseFloat(settlementPerItem);
-                  const qty =
-                    perItem > 0
-                      ? Math.round(item.settlementAmount / perItem)
-                      : 1;
-                  const totalCost = cost * qty;
-                  const profit = item.settlementAmount - totalCost;
 
-                  // Check if return item
-                  const isReturn = item.isReturn || item.settlementAmount < 0;
+                  // Check if this is a return item
+                  const isReturn = item.isReturn || item.totalIncome <= 0;
+
+                  const qty = isReturn
+                    ? 0
+                    : perItem > 0
+                    ? Math.round(item.totalIncome / perItem)
+                    : 1;
+                  const totalCost = isReturn ? 0 : cost * qty;
+                  const profit = isReturn ? 0 : item.totalIncome - totalCost;
 
                   return (
                     <tr
@@ -387,10 +384,10 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
                         {item.orderId}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {item.date}
+                        {item.releaseDate}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600">
-                        {isReturn ? "-" : formatCurrency(item.settlementAmount)}
+                        {isReturn ? "-" : formatCurrency(item.totalIncome)}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-900">
                         {isReturn ? "-" : qty}
@@ -407,7 +404,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
                             : "text-red-600"
                         }`}
                       >
-                        {isReturn ? formatCurrency(0) : formatCurrency(profit)}
+                        {isReturn ? "Rp 0" : formatCurrency(profit)}
                       </td>
                     </tr>
                   );
@@ -426,10 +423,10 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-blue-50 p-3 rounded-lg">
               <p className="text-xs text-blue-600 font-medium">
-                Total Settlement
+                Total Penghasilan
               </p>
               <p className="text-lg font-bold text-blue-700">
-                {formatCurrency(previewTotals.totalSettlement)}
+                {formatCurrency(previewTotals.totalIncome)}
               </p>
             </div>
             <div className="bg-gray-50 p-3 rounded-lg">
@@ -453,12 +450,14 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
           </div>
 
           {/* Return Items Info */}
-          {returnCount > 0 && (
-            <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-800">
-                <strong>🔄 Info Return:</strong> Ditemukan {returnCount} item
-                return (settlement negatif). Item return tidak dihitung dalam
-                profit/loss.
+          {previewTotals.returnCount > 0 && (
+            <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded">
+              <p className="text-sm text-red-800 font-semibold">
+                🔄 Return Items Detected
+              </p>
+              <p className="text-sm text-red-700 mt-1">
+                Ditemukan <strong>{previewTotals.returnCount}</strong> item
+                return/refund. Item ini tidak dihitung dalam total profit.
               </p>
             </div>
           )}
@@ -512,7 +511,7 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
           <button
             onClick={handleImport}
             disabled={importing}
-            className="flex-1 bg-gradient-to-r from-green-500 to-teal-500 text-white px-6 py-3 rounded-lg font-semibold hover:from-green-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="flex-1 bg-gradient-to-r from-orange-500 to-pink-500 text-white px-6 py-3 rounded-lg font-semibold hover:from-orange-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {importing ? "🔄 Importing..." : "📥 Import Data"}
           </button>

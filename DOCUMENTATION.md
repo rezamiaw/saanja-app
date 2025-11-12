@@ -26,6 +26,18 @@
 - **Untuk**: Fix PDF import issues
 - **Isi**: Common errors & solutions
 
+### 🚀 **Vercel Deployment**
+
+- **File**: `VERCEL_DEPLOYMENT.md`
+- **Untuk**: Deploy aplikasi ke Vercel
+- **Isi**: Setup environment variables, troubleshooting deployment
+
+### 🔐 **PIN Setup**
+
+- **File**: `PIN_SETUP.md`
+- **Untuk**: Setup & ganti PIN access code
+- **Isi**: Cara ganti PIN, troubleshooting login
+
 ### 📄 **Main README**
 
 - **File**: `README.md`
@@ -52,6 +64,14 @@
 
 → Baca: `PDF_IMPORT_TROUBLESHOOTING.md`
 
+### "Mau deploy ke Vercel"
+
+→ Baca: `VERCEL_DEPLOYMENT.md`
+
+### "Lupa PIN / mau ganti PIN"
+
+→ Baca: `PIN_SETUP.md`
+
 ### "Mau lihat overview features"
 
 → Baca: `README.md`
@@ -68,7 +88,9 @@ saanja_app/
 ├── 📗 SUPABASE_MIGRATION_GUIDE.md
 ├── 🛠️ SUPABASE_USAGE.md
 ├── 🔧 PDF_IMPORT_TROUBLESHOOTING.md
+├── 🚀 VERCEL_DEPLOYMENT.md
 ├── 🔐 PIN_SETUP.md
+├── 🔒 .env.local (your local copy - not committed)
 │
 ├── app/
 │   ├── layout.tsx
@@ -126,4 +148,4 @@ DELETE FROM products;
 
 ---
 
-**Last updated**: 2025-10-30
+**Last updated**: 2025-10-31

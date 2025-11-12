@@ -55,7 +55,14 @@ export default function TransactionList({
           {transactions.map((transaction) => {
             // Check if this is a return item
             const isReturn =
-              transaction.notes?.includes("RETURN") || transaction.profit === 0;
+              transaction.notes?.includes("RETURN") ||
+              transaction.profit === 0 ||
+              transaction.quantity === 0;
+
+            // Calculate values
+            const totalModal = transaction.buyPrice * transaction.quantity;
+            const totalOmzet = transaction.sellPrice * transaction.quantity;
+            const isInvalidOmzet = isNaN(totalOmzet) || !isFinite(totalOmzet);
 
             return (
               <tr
@@ -98,9 +105,36 @@ export default function TransactionList({
                         .replace("Order ", "")
                         .replace("...", "");
                       return (
-                        <p className="font-mono text-xs text-gray-900">
-                          {orderId}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-mono text-xs text-gray-900">
+                            {orderId}
+                          </p>
+                          {isReturn && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                              🔄 RETURN
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Extract Order ID from Shopee productName
+                    if (transaction.productName.startsWith("Shopee - ")) {
+                      const orderId = transaction.productName.replace(
+                        "Shopee - ",
+                        ""
+                      );
+                      return (
+                        <div className="flex items-center gap-2">
+                          <p className="font-mono text-xs text-gray-900">
+                            {orderId}
+                          </p>
+                          {isReturn && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                              🔄 RETURN
+                            </span>
+                          )}
+                        </div>
                       );
                     }
 
@@ -116,18 +150,12 @@ export default function TransactionList({
                   {isReturn ? "-" : transaction.quantity}
                 </td>
                 <td className="py-3 px-4 text-right text-sm text-gray-600">
-                  {isReturn
-                    ? "-"
-                    : formatCurrency(
-                        transaction.buyPrice * transaction.quantity
-                      )}
+                  {isReturn ? "-" : formatCurrency(totalModal)}
                 </td>
                 <td className="py-3 px-4 text-right text-sm text-gray-600">
-                  {isReturn
+                  {isReturn || isInvalidOmzet
                     ? "-"
-                    : formatCurrency(
-                        transaction.sellPrice * transaction.quantity
-                      )}
+                    : formatCurrency(totalOmzet)}
                 </td>
                 <td
                   className={`py-3 px-4 text-right text-sm font-semibold ${

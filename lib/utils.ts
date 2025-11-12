@@ -1,6 +1,11 @@
 import { Transaction, DashboardStats } from "@/types";
 
 export function formatCurrency(amount: number): string {
+  // Handle NaN, Infinity, or invalid numbers
+  if (isNaN(amount) || !isFinite(amount)) {
+    return "Rp 0";
+  }
+
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
@@ -97,4 +102,3 @@ export function calculateDashboardStats(
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
-

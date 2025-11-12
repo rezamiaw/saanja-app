@@ -115,6 +115,45 @@ npm run dev
 3. Run `npm run dev`
 4. Use localStorage (data not persistent)
 
+---
+
+## 🚀 Deployment ke Production
+
+### **Deploy ke Vercel** (Recommended)
+
+1. **Push code ke GitHub**
+
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git remote add origin https://github.com/username/saanja-app.git
+   git push -u origin main
+   ```
+
+2. **Deploy di Vercel**
+
+   - Buka [vercel.com](https://vercel.com)
+   - Import repository dari GitHub
+   - Vercel akan auto-detect Next.js
+
+3. **Add Environment Variables di Vercel**
+
+   - Dashboard → Project → Settings → Environment Variables
+   - Tambahkan:
+     ```
+     NEXT_PUBLIC_SUPABASE_URL = https://xxx.supabase.co
+     NEXT_PUBLIC_SUPABASE_ANON_KEY = eyJhbGci...
+     ```
+   - Pilih environments: **Production**, **Preview**, **Development**
+   - Save & Redeploy
+
+4. **✅ Done!** Visit: `https://your-app.vercel.app`
+
+📖 **Panduan lengkap**: Lihat `VERCEL_DEPLOYMENT.md` untuk troubleshooting dan detail setup.
+
+---
+
 ## 📖 Cara Menggunakan
 
 ### 🔐 Login dengan PIN

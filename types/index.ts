@@ -32,4 +32,12 @@ export interface DashboardStats {
   }>;
 }
 
-
+export interface Withdrawal {
+  id: string;
+  date: string;
+  amount: number;
+  startPeriod?: string;
+  endPeriod?: string;
+  notes?: string;
+  createdAt: string;
+}

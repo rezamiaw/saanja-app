@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Product, Transaction } from "@/types";
+import { Product, Transaction, Withdrawal } from "@/types";
 import {
   getProducts,
   saveProduct,
@@ -11,6 +11,9 @@ import {
   deleteTransaction,
   saveProducts,
   saveTransactions,
+  getWithdrawals,
+  saveWithdrawal,
+  deleteWithdrawal,
 } from "@/lib/storageSupabase";
 import { calculateDashboardStats, formatCurrency } from "@/lib/utils";
 import StatsCard from "@/components/StatsCard";
@@ -20,17 +23,7 @@ import TransactionForm from "@/components/TransactionForm";
 import TransactionList from "@/components/TransactionList";
 import CSVImport from "@/components/CSVImport";
 import ExcelImport from "@/components/ExcelImport";
-import dynamic from "next/dynamic";
-
-// Dynamic import PDFImport to avoid SSR issues with PDF.js
-const PDFImport = dynamic(() => import("@/components/PDFImport"), {
-  ssr: false,
-  loading: () => (
-    <div className="bg-white rounded-lg border border-gray-200 p-6">
-      <p className="text-gray-600">Loading PDF Import...</p>
-    </div>
-  ),
-});
+import ShopeeExcelImport from "@/components/ShopeeExcelImport";
 
 type TabType = "dashboard" | "reports" | "excel" | "pdf";
 
@@ -41,9 +34,23 @@ export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [filterDate, setFilterDate] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
+  const [reportPlatformFilter, setReportPlatformFilter] =
+    useState<PlatformFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  // Withdrawal states
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [showWithdrawalForm, setShowWithdrawalForm] = useState(false);
+  const [withdrawalDate, setWithdrawalDate] = useState("");
+  const [withdrawalAmount, setWithdrawalAmount] = useState("");
+  const [withdrawalStartPeriod, setWithdrawalStartPeriod] = useState("");
+  const [withdrawalEndPeriod, setWithdrawalEndPeriod] = useState("");
+  const [withdrawalNotes, setWithdrawalNotes] = useState("");
 
   // PIN Authentication
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -73,12 +80,15 @@ export default function Home() {
     async function loadData() {
       setIsLoading(true);
       try {
-        const [productsData, transactionsData] = await Promise.all([
-          getProducts(),
-          getTransactions(),
-        ]);
+        const [productsData, transactionsData, withdrawalsData] =
+          await Promise.all([
+            getProducts(),
+            getTransactions(),
+            getWithdrawals(),
+          ]);
         setProducts(productsData);
         setTransactions(transactionsData);
+        setWithdrawals(withdrawalsData);
       } catch (error) {
         console.error("Error loading data:", error);
       } finally {
@@ -87,6 +97,11 @@ export default function Home() {
     }
     loadData();
   }, [isAuthenticated]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [reportPlatformFilter, startDate, endDate]);
 
   // Handle PIN submission
   const handlePinSubmit = (e: React.FormEvent) => {
@@ -157,6 +172,66 @@ export default function Home() {
     setActiveTab("dashboard");
   };
 
+  // Withdrawal handlers
+  const handleSaveWithdrawal = async () => {
+    if (!withdrawalDate || !withdrawalAmount) {
+      alert("Tanggal dan jumlah penarikan harus diisi!");
+      return;
+    }
+
+    const amount = parseFloat(withdrawalAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Jumlah penarikan tidak valid!");
+      return;
+    }
+
+    try {
+      const newWithdrawal: Withdrawal = {
+        id: `withdrawal-${Date.now()}`,
+        date: withdrawalDate,
+        amount,
+        startPeriod: withdrawalStartPeriod || undefined,
+        endPeriod: withdrawalEndPeriod || undefined,
+        notes: withdrawalNotes || undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      console.log("💾 Saving withdrawal:", newWithdrawal);
+      const success = await saveWithdrawal(newWithdrawal);
+
+      if (!success) {
+        alert("❌ Gagal menyimpan penarikan. Silakan coba lagi.");
+        return;
+      }
+
+      console.log("✅ Withdrawal saved, fetching updated list...");
+      const updated = await getWithdrawals();
+      console.log("📋 Updated withdrawals:", updated);
+      setWithdrawals(updated);
+
+      // Reset form
+      setWithdrawalDate("");
+      setWithdrawalAmount("");
+      setWithdrawalStartPeriod("");
+      setWithdrawalEndPeriod("");
+      setWithdrawalNotes("");
+      setShowWithdrawalForm(false);
+
+      alert("✅ Penarikan berhasil dicatat!");
+    } catch (error) {
+      console.error("❌ Error in handleSaveWithdrawal:", error);
+      alert("❌ Terjadi kesalahan. Silakan coba lagi.");
+    }
+  };
+
+  const handleDeleteWithdrawal = async (id: string) => {
+    if (confirm("Hapus data penarikan ini?")) {
+      await deleteWithdrawal(id);
+      const updated = await getWithdrawals();
+      setWithdrawals(updated);
+    }
+  };
+
   // Filter transactions by platform
   const filterTransactionsByPlatform = (
     transactions: Transaction[],
@@ -165,9 +240,11 @@ export default function Home() {
     if (platform === "all") return transactions;
 
     return transactions.filter((t) => {
+      // Check if transaction is from Shopee
       const isShopee =
-        t.productName.includes("Shopee Daily") ||
-        (t.notes && t.notes.includes("SHOPEE-"));
+        t.productName.toLowerCase().includes("shopee") ||
+        (t.notes && t.notes.toLowerCase().includes("shopee"));
+
       const isTikTok = !isShopee;
 
       if (platform === "shopee") return isShopee;
@@ -182,15 +259,42 @@ export default function Home() {
   );
   const stats = calculateDashboardStats(filteredTransactionsByPlatform);
 
-  const filteredTransactions = filterDate
-    ? transactions.filter((t) => t.date === filterDate)
-    : transactions;
+  // Apply platform filter first
+  const platformFilteredForReports = filterTransactionsByPlatform(
+    transactions,
+    reportPlatformFilter
+  );
+
+  // Then apply date filter and sort
+  const filteredTransactions =
+    startDate || endDate
+      ? [...platformFilteredForReports]
+          .filter((t) => {
+            const transactionDate = new Date(t.date);
+            const start = startDate ? new Date(startDate) : null;
+            const end = endDate ? new Date(endDate) : null;
+
+            if (start && end) {
+              return transactionDate >= start && transactionDate <= end;
+            } else if (start) {
+              return transactionDate >= start;
+            } else if (end) {
+              return transactionDate <= end;
+            }
+            return true;
+          })
+          .sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          )
+      : [...platformFilteredForReports].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
 
   const tabs = [
     { id: "dashboard" as TabType, label: "📊 Dashboard", icon: "📊" },
     { id: "reports" as TabType, label: "📈 Laporan", icon: "📈" },
     { id: "excel" as TabType, label: "🎵 TikTok Shop (Excel)", icon: "🎵" },
-    { id: "pdf" as TabType, label: "🛍️ Shopee (PDF)", icon: "🛍️" },
+    { id: "pdf" as TabType, label: "🛍️ Shopee (Excel)", icon: "🛍️" },
   ];
 
   // Show loading while checking authentication
@@ -208,53 +312,43 @@ export default function Home() {
   // Show PIN screen if not authenticated
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full">
           {/* PIN Card */}
-          <div className="bg-white rounded-2xl shadow-2xl p-8 border-2 border-gray-200">
+          <div className="bg-white rounded-lg shadow-lg p-8">
             {/* Logo/Icon */}
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4 shadow-lg">
-                <span className="text-4xl">💼</span>
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-500 rounded-full mb-3">
+                <span className="text-3xl">💼</span>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                Saanja App
-              </h1>
-              <p className="text-gray-600">Masukkan PIN untuk akses</p>
+              <h1 className="text-2xl font-bold text-gray-900">Saanja App</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                Masukkan PIN untuk akses
+              </p>
             </div>
 
             {/* PIN Form */}
-            <form onSubmit={handlePinSubmit} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  PIN Access Code
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={pinInput}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/[^0-9]/g, "");
-                    setPinInput(value);
-                  }}
-                  maxLength={6}
-                  placeholder="Masukkan PIN (angka)"
-                  className="w-full px-6 py-4 text-center text-2xl tracking-widest border-2 border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-500 focus:border-blue-500 font-mono bg-gray-50 placeholder:text-gray-400 text-gray-900"
-                  autoFocus
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-2 text-center">
-                  💡 Gunakan angka saja (contoh: 1234)
-                </p>
-              </div>
+            <form onSubmit={handlePinSubmit} className="space-y-4">
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={pinInput}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/[^0-9]/g, "");
+                  setPinInput(value);
+                }}
+                maxLength={6}
+                placeholder="Masukkan PIN (angka)"
+                className="w-full px-4 py-3 text-center text-xl tracking-widest border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono placeholder:text-gray-400 text-gray-900"
+                autoFocus
+                required
+              />
 
               {/* Error Message */}
               {pinError && (
-                <div className="p-4 bg-red-50 border-2 border-red-300 rounded-lg animate-shake">
-                  <p className="text-red-800 text-sm font-medium text-center">
-                    {pinError}
-                  </p>
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg animate-shake">
+                  <p className="text-red-700 text-sm text-center">{pinError}</p>
                 </div>
               )}
 
@@ -262,30 +356,21 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={pinInput.length === 0}
-                className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${
+                className={`w-full py-3 rounded-lg font-semibold transition-all ${
                   pinInput.length === 0
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    : "bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-xl transform hover:scale-105"
+                    ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
                 }`}
               >
-                {pinInput.length === 0 ? "🔒 Masukkan PIN" : "🔓 Unlock"}
+                🔓 Masukkan PIN
               </button>
             </form>
 
-            {/* Info */}
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <p className="text-xs text-gray-500 text-center">
-                🔐 PIN disimpan di session browser Anda.
-                <br />
-                Akan hilang saat browser ditutup.
-              </p>
-            </div>
+            {/* Footer */}
+            <p className="text-center text-xs text-gray-400 mt-6">
+              Made with ❤️ for Saanja Seller
+            </p>
           </div>
-
-          {/* Footer */}
-          <p className="text-center text-gray-500 text-sm mt-6">
-            Made with ❤️ for Saanja Seller
-          </p>
         </div>
       </div>
     );
@@ -512,12 +597,243 @@ export default function Home() {
                 </p>
                 <div className="flex gap-4 justify-center mt-3">
                   <div className="text-blue-700">
-                    <strong>🎵 TikTok Shop</strong> → Import Excel
+                    <strong>🎵 TikTok Shop</strong> → Import Excel Income
                   </div>
                   <div className="text-blue-700">
-                    <strong>🛍️ Shopee</strong> → Import PDF
+                    <strong>🛍️ Shopee</strong> → Import Excel Income
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Withdrawal Section */}
+            {transactions.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    💰 Riwayat Penarikan
+                  </h2>
+                  <button
+                    onClick={() => setShowWithdrawalForm(!showWithdrawalForm)}
+                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-teal-500 text-white rounded-lg hover:from-green-600 hover:to-teal-600 transition-all font-medium text-sm"
+                  >
+                    {showWithdrawalForm ? "❌ Batal" : "+ Catat Penarikan"}
+                  </button>
+                </div>
+
+                {/* Withdrawal Form */}
+                {showWithdrawalForm && (
+                  <div className="mb-6 bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    <h3 className="font-semibold text-gray-900">
+                      Catat Penarikan Baru
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          📅 Tanggal Penarikan *
+                        </label>
+                        <input
+                          type="date"
+                          value={withdrawalDate}
+                          onChange={(e) => setWithdrawalDate(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          💵 Jumlah Ditarik (Rp) *
+                        </label>
+                        <input
+                          type="number"
+                          value={withdrawalAmount}
+                          onChange={(e) => setWithdrawalAmount(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white placeholder:text-gray-400"
+                          placeholder="500000"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          📊 Periode Profit - Dari
+                        </label>
+                        <input
+                          type="date"
+                          value={withdrawalStartPeriod}
+                          onChange={(e) =>
+                            setWithdrawalStartPeriod(e.target.value)
+                          }
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          📊 Periode Profit - Sampai
+                        </label>
+                        <input
+                          type="date"
+                          value={withdrawalEndPeriod}
+                          onChange={(e) =>
+                            setWithdrawalEndPeriod(e.target.value)
+                          }
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        📝 Catatan (Optional)
+                      </label>
+                      <textarea
+                        value={withdrawalNotes}
+                        onChange={(e) => setWithdrawalNotes(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white placeholder:text-gray-400"
+                        rows={2}
+                        placeholder="Transfer ke Bank BCA..."
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleSaveWithdrawal}
+                        className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                      >
+                        💾 Simpan Penarikan
+                      </button>
+                      <button
+                        onClick={() => setShowWithdrawalForm(false)}
+                        className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors font-medium"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Summary Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <p className="text-xs text-green-600 font-medium mb-1">
+                      Total Profit
+                    </p>
+                    <p className="text-2xl font-bold text-green-700">
+                      {formatCurrency(
+                        filteredTransactionsByPlatform
+                          .filter((t) => !t.notes?.includes("RETURN"))
+                          .reduce((sum, t) => sum + t.profit, 0)
+                      )}
+                    </p>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                    <p className="text-xs text-orange-600 font-medium mb-1">
+                      Sudah Ditarik
+                    </p>
+                    <p className="text-2xl font-bold text-orange-700">
+                      {formatCurrency(
+                        withdrawals.reduce((sum, w) => sum + w.amount, 0)
+                      )}
+                    </p>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-600 font-medium mb-1">
+                      Sisa Tersedia
+                    </p>
+                    <p className="text-2xl font-bold text-blue-700">
+                      {formatCurrency(
+                        filteredTransactionsByPlatform
+                          .filter((t) => !t.notes?.includes("RETURN"))
+                          .reduce((sum, t) => sum + t.profit, 0) -
+                          withdrawals.reduce((sum, w) => sum + w.amount, 0)
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Withdrawal History */}
+                {withdrawals.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                    <p className="text-gray-500">
+                      📊 Belum ada riwayat penarikan
+                    </p>
+                    <p className="text-gray-400 text-sm mt-1">
+                      Klik tombol "Catat Penarikan" untuk mulai mencatat
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <h3 className="font-semibold text-gray-900 mb-3">
+                      📊 Timeline Penarikan
+                    </h3>
+                    {withdrawals.map((withdrawal) => (
+                      <div
+                        key={withdrawal.id}
+                        className="flex items-start gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        <div className="flex-shrink-0 mt-1">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                💰 {formatCurrency(withdrawal.amount)}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                📅{" "}
+                                {new Date(withdrawal.date).toLocaleDateString(
+                                  "id-ID",
+                                  {
+                                    day: "numeric",
+                                    month: "long",
+                                    year: "numeric",
+                                  }
+                                )}
+                              </p>
+                              {(withdrawal.startPeriod ||
+                                withdrawal.endPeriod) && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  📊 Periode:{" "}
+                                  {withdrawal.startPeriod &&
+                                    new Date(
+                                      withdrawal.startPeriod
+                                    ).toLocaleDateString("id-ID", {
+                                      day: "numeric",
+                                      month: "short",
+                                    })}
+                                  {withdrawal.startPeriod &&
+                                    withdrawal.endPeriod &&
+                                    " - "}
+                                  {withdrawal.endPeriod &&
+                                    new Date(
+                                      withdrawal.endPeriod
+                                    ).toLocaleDateString("id-ID", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                    })}
+                                </p>
+                              )}
+                              {withdrawal.notes && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  📝 {withdrawal.notes}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() =>
+                                handleDeleteWithdrawal(withdrawal.id)
+                              }
+                              className="text-red-600 hover:text-red-800 text-sm"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -530,55 +846,385 @@ export default function Home() {
               <h2 className="text-xl font-bold text-gray-900 mb-4">
                 Filter Laporan
               </h2>
+
+              {/* Platform Filter */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Platform
+                </label>
+                <select
+                  value={reportPlatformFilter}
+                  onChange={(e) =>
+                    setReportPlatformFilter(e.target.value as PlatformFilter)
+                  }
+                  className="w-full px-4 py-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-medium shadow-sm hover:border-blue-400 cursor-pointer"
+                >
+                  <option value="all">🌐 Semua Platform</option>
+                  <option value="tiktok">🎵 TikTok Shop</option>
+                  <option value="shopee">🛍️ Shopee</option>
+                </select>
+              </div>
+
+              {/* Date Filter */}
               <div className="flex gap-4 items-end">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Filter Tanggal
+                    Dari Tanggal
                   </label>
                   <input
                     type="date"
-                    value={filterDate}
-                    onChange={(e) => setFilterDate(e.target.value)}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
                     className="w-full px-4 py-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-medium shadow-sm hover:border-blue-400 cursor-pointer"
                   />
                 </div>
-                {filterDate && (
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sampai Tanggal
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-4 py-2 border-2 border-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 font-medium shadow-sm hover:border-blue-400 cursor-pointer"
+                  />
+                </div>
+                {(startDate || endDate) && (
                   <button
-                    onClick={() => setFilterDate("")}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    onClick={() => {
+                      setStartDate("");
+                      setEndDate("");
+                    }}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors whitespace-nowrap"
                   >
-                    Reset Filter
+                    Reset Tanggal
                   </button>
                 )}
               </div>
-              {filterDate && (
+              {/* Filter Info */}
+              {(reportPlatformFilter !== "all" || startDate || endDate) && (
                 <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    Menampilkan {filteredTransactions.length} transaksi untuk
-                    tanggal {new Date(filterDate).toLocaleDateString("id-ID")}
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <p className="text-sm text-blue-800 mb-1">
+                        <strong>Filter Aktif:</strong>
+                      </p>
+                      {reportPlatformFilter !== "all" && (
+                        <p className="text-sm text-blue-700 mb-1">
+                          📱 Platform:{" "}
+                          {reportPlatformFilter === "tiktok"
+                            ? "🎵 TikTok Shop"
+                            : "🛍️ Shopee"}
+                        </p>
+                      )}
+                      {(startDate || endDate) && (
+                        <p className="text-sm text-blue-700 mb-1">
+                          📅 Tanggal:
+                          {startDate && endDate
+                            ? ` ${new Date(startDate).toLocaleDateString(
+                                "id-ID"
+                              )} - ${new Date(endDate).toLocaleDateString(
+                                "id-ID"
+                              )}`
+                            : startDate
+                            ? ` Dari ${new Date(startDate).toLocaleDateString(
+                                "id-ID"
+                              )}`
+                            : ` Sampai ${new Date(endDate).toLocaleDateString(
+                                "id-ID"
+                              )}`}
+                        </p>
+                      )}
+                      <p className="text-sm text-blue-800 font-semibold mt-2">
+                        📊 Menampilkan {filteredTransactions.length} transaksi
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setReportPlatformFilter("all");
+                        setStartDate("");
+                        setEndDate("");
+                      }}
+                      className="ml-4 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Reset Semua Filter
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Summary Statistics - Always Show */}
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-600 font-medium mb-1">
+                    Total Penghasilan
                   </p>
-                  <p className="text-lg font-bold text-blue-900 mt-2">
-                    Total Keuntungan:{" "}
+                  <p className="text-xl font-bold text-blue-700">
                     {formatCurrency(
-                      filteredTransactions.reduce((sum, t) => sum + t.profit, 0)
+                      filteredTransactions
+                        .filter(
+                          (t) => !t.notes?.includes("RETURN") && t.quantity > 0
+                        )
+                        .reduce((sum, t) => {
+                          const omzet = t.sellPrice * t.quantity;
+                          return isNaN(omzet) || !isFinite(omzet)
+                            ? sum
+                            : sum + omzet;
+                        }, 0)
                     )}
                   </p>
                 </div>
-              )}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <p className="text-xs text-gray-600 font-medium mb-1">
+                    Total Qty
+                  </p>
+                  <p className="text-xl font-bold text-gray-700">
+                    {filteredTransactions
+                      .filter(
+                        (t) => !t.notes?.includes("RETURN") && t.quantity > 0
+                      )
+                      .reduce((sum, t) => sum + t.quantity, 0)}
+                  </p>
+                </div>
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                  <p className="text-xs text-red-600 font-medium mb-1">
+                    Total Modal
+                  </p>
+                  <p className="text-xl font-bold text-red-700">
+                    {formatCurrency(
+                      filteredTransactions
+                        .filter(
+                          (t) => !t.notes?.includes("RETURN") && t.quantity > 0
+                        )
+                        .reduce((sum, t) => {
+                          const modal = t.buyPrice * t.quantity;
+                          return isNaN(modal) || !isFinite(modal)
+                            ? sum
+                            : sum + modal;
+                        }, 0)
+                    )}
+                  </p>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                  <p className="text-xs text-green-600 font-medium mb-1">
+                    Total Profit
+                  </p>
+                  <p className="text-xl font-bold text-green-700">
+                    {formatCurrency(
+                      filteredTransactions
+                        .filter(
+                          (t) => !t.notes?.includes("RETURN") && t.quantity > 0
+                        )
+                        .reduce((sum, t) => {
+                          const profit = t.profit;
+                          return isNaN(profit) || !isFinite(profit)
+                            ? sum
+                            : sum + profit;
+                        }, 0)
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Return Items Info */}
+              {(() => {
+                const returnCount = filteredTransactions.filter(
+                  (t) => t.notes?.includes("RETURN") || t.quantity === 0
+                ).length;
+
+                if (returnCount > 0) {
+                  return (
+                    <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 rounded">
+                      <p className="text-sm text-red-800 font-semibold">
+                        🔄 Return Items Detected
+                      </p>
+                      <p className="text-sm text-red-700 mt-1">
+                        Ditemukan <strong>{returnCount}</strong> item
+                        return/refund dalam periode ini. Item ini tidak dihitung
+                        dalam statistik di atas.
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">
-                {filterDate
-                  ? `Transaksi pada ${new Date(filterDate).toLocaleDateString(
-                      "id-ID"
-                    )}`
+                {startDate || endDate
+                  ? startDate && endDate
+                    ? `Transaksi ${new Date(startDate).toLocaleDateString(
+                        "id-ID"
+                      )} - ${new Date(endDate).toLocaleDateString("id-ID")}`
+                    : startDate
+                    ? `Transaksi mulai ${new Date(startDate).toLocaleDateString(
+                        "id-ID"
+                      )}`
+                    : `Transaksi sampai ${new Date(endDate).toLocaleDateString(
+                        "id-ID"
+                      )}`
                   : "Semua Transaksi"}
               </h2>
-              <TransactionList
-                transactions={filteredTransactions}
-                onDelete={handleDeleteTransaction}
-              />
+
+              {/* Pagination Info */}
+              {(() => {
+                const totalPages = Math.ceil(
+                  filteredTransactions.length / itemsPerPage
+                );
+                const startIndex = (currentPage - 1) * itemsPerPage;
+                const endIndex = startIndex + itemsPerPage;
+                const paginatedTransactions = filteredTransactions.slice(
+                  startIndex,
+                  endIndex
+                );
+
+                return (
+                  <>
+                    {/* Transaction List */}
+                    <TransactionList
+                      transactions={paginatedTransactions}
+                      onDelete={handleDeleteTransaction}
+                    />
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="mt-6 border-t border-gray-200 pt-4">
+                        {/* Info Text */}
+                        <div className="text-sm text-gray-600 mb-4">
+                          Menampilkan {startIndex + 1} -{" "}
+                          {Math.min(endIndex, filteredTransactions.length)} dari{" "}
+                          {filteredTransactions.length} transaksi
+                        </div>
+
+                        {/* Pagination Numbers */}
+                        <div className="flex items-center justify-center gap-2">
+                          {/* Previous Button */}
+                          <button
+                            onClick={() =>
+                              setCurrentPage((prev) => Math.max(1, prev - 1))
+                            }
+                            disabled={currentPage === 1}
+                            className={`w-10 h-10 flex items-center justify-center rounded-lg font-medium transition-all ${
+                              currentPage === 1
+                                ? "text-gray-300 cursor-not-allowed"
+                                : "text-gray-700 hover:bg-gray-100"
+                            }`}
+                          >
+                            ‹
+                          </button>
+
+                          {/* Page Numbers */}
+                          {(() => {
+                            const pages = [];
+                            const showEllipsisStart = currentPage > 3;
+                            const showEllipsisEnd =
+                              currentPage < totalPages - 2;
+
+                            // First page
+                            pages.push(
+                              <button
+                                key={1}
+                                onClick={() => setCurrentPage(1)}
+                                className={`w-10 h-10 flex items-center justify-center rounded-full font-medium transition-all ${
+                                  currentPage === 1
+                                    ? "bg-blue-500 text-white shadow-lg"
+                                    : "text-gray-700 hover:bg-gray-100"
+                                }`}
+                              >
+                                1
+                              </button>
+                            );
+
+                            // Ellipsis after first page
+                            if (showEllipsisStart) {
+                              pages.push(
+                                <span
+                                  key="ellipsis-start"
+                                  className="text-gray-400 px-2"
+                                >
+                                  ...
+                                </span>
+                              );
+                            }
+
+                            // Pages around current page
+                            const startPage = Math.max(2, currentPage - 1);
+                            const endPage = Math.min(
+                              totalPages - 1,
+                              currentPage + 1
+                            );
+
+                            for (let i = startPage; i <= endPage; i++) {
+                              pages.push(
+                                <button
+                                  key={i}
+                                  onClick={() => setCurrentPage(i)}
+                                  className={`w-10 h-10 flex items-center justify-center rounded-full font-medium transition-all ${
+                                    currentPage === i
+                                      ? "bg-blue-500 text-white shadow-lg"
+                                      : "text-gray-700 hover:bg-gray-100"
+                                  }`}
+                                >
+                                  {i}
+                                </button>
+                              );
+                            }
+
+                            // Ellipsis before last page
+                            if (showEllipsisEnd) {
+                              pages.push(
+                                <span
+                                  key="ellipsis-end"
+                                  className="text-gray-400 px-2"
+                                >
+                                  ...
+                                </span>
+                              );
+                            }
+
+                            // Last page (if more than 1 page)
+                            if (totalPages > 1) {
+                              pages.push(
+                                <button
+                                  key={totalPages}
+                                  onClick={() => setCurrentPage(totalPages)}
+                                  className={`w-10 h-10 flex items-center justify-center rounded-full font-medium transition-all ${
+                                    currentPage === totalPages
+                                      ? "bg-blue-500 text-white shadow-lg"
+                                      : "text-gray-700 hover:bg-gray-100"
+                                  }`}
+                                >
+                                  {totalPages}
+                                </button>
+                              );
+                            }
+
+                            return pages;
+                          })()}
+
+                          {/* Next Button */}
+                          <button
+                            onClick={() =>
+                              setCurrentPage((prev) =>
+                                Math.min(totalPages, prev + 1)
+                              )
+                            }
+                            disabled={currentPage === totalPages}
+                            className={`w-10 h-10 flex items-center justify-center rounded-lg font-medium transition-all ${
+                              currentPage === totalPages
+                                ? "text-gray-300 cursor-not-allowed"
+                                : "text-gray-700 hover:bg-gray-100"
+                            }`}
+                          >
+                            ›
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -590,10 +1236,10 @@ export default function Home() {
           </div>
         )}
 
-        {/* Import PDF Tab */}
+        {/* Import Shopee Excel Tab */}
         {!isLoading && activeTab === "pdf" && (
           <div>
-            <PDFImport products={products} onImport={handleCSVImport} />
+            <ShopeeExcelImport products={products} onImport={handleCSVImport} />
           </div>
         )}
       </main>

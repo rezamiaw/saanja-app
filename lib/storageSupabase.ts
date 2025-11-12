@@ -1,4 +1,4 @@
-import { Product, Transaction } from "@/types";
+import { Product, Transaction, Withdrawal } from "@/types";
 import { supabase } from "./supabase";
 
 // ====================================
@@ -255,6 +255,110 @@ export const saveTransactions = async (
     return true;
   } catch (error) {
     console.error("❌ Error in saveTransactions:", error);
+    return false;
+  }
+};
+
+// ====================================
+// WITHDRAWALS - Supabase
+// ====================================
+
+export const getWithdrawals = async (): Promise<Withdrawal[]> => {
+  try {
+    const { data, error } = await supabase
+      .from("withdrawals")
+      .select("*")
+      .order("date", { ascending: false });
+
+    if (error) {
+      console.error("❌ Error fetching withdrawals:", error);
+      return [];
+    }
+
+    // Convert snake_case to camelCase
+    return (data || []).map((w) => ({
+      id: w.id,
+      date: w.date,
+      amount: w.amount,
+      startPeriod: w.start_period,
+      endPeriod: w.end_period,
+      notes: w.notes,
+      createdAt: w.created_at,
+    }));
+  } catch (error) {
+    console.error("❌ Error in getWithdrawals:", error);
+    return [];
+  }
+};
+
+export const saveWithdrawal = async (
+  withdrawal: Withdrawal
+): Promise<boolean> => {
+  try {
+    const { error } = await supabase.from("withdrawals").insert({
+      id: withdrawal.id,
+      date: withdrawal.date,
+      amount: withdrawal.amount,
+      start_period: withdrawal.startPeriod,
+      end_period: withdrawal.endPeriod,
+      notes: withdrawal.notes,
+      created_at: withdrawal.createdAt,
+    });
+
+    if (error) {
+      console.error("❌ Error saving withdrawal:", error);
+      return false;
+    }
+
+    console.log("✅ Saved withdrawal:", withdrawal.id);
+    return true;
+  } catch (error) {
+    console.error("❌ Error in saveWithdrawal:", error);
+    return false;
+  }
+};
+
+export const deleteWithdrawal = async (id: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase.from("withdrawals").delete().eq("id", id);
+
+    if (error) {
+      console.error("❌ Error deleting withdrawal:", error);
+      return false;
+    }
+
+    console.log("✅ Deleted withdrawal:", id);
+    return true;
+  } catch (error) {
+    console.error("❌ Error in deleteWithdrawal:", error);
+    return false;
+  }
+};
+
+export const updateWithdrawal = async (
+  withdrawal: Withdrawal
+): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from("withdrawals")
+      .update({
+        date: withdrawal.date,
+        amount: withdrawal.amount,
+        start_period: withdrawal.startPeriod,
+        end_period: withdrawal.endPeriod,
+        notes: withdrawal.notes,
+      })
+      .eq("id", withdrawal.id);
+
+    if (error) {
+      console.error("❌ Error updating withdrawal:", error);
+      return false;
+    }
+
+    console.log("✅ Updated withdrawal:", withdrawal.id);
+    return true;
+  } catch (error) {
+    console.error("❌ Error in updateWithdrawal:", error);
     return false;
   }
 };
