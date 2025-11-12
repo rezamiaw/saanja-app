@@ -118,8 +118,8 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
     try {
       const { transactions, products: newProducts } = importExcelIncomeData(
         previewData,
-        cost,
-        perItem
+        products,
+        cost
       );
 
       console.log("📦 Generated Transactions:", transactions);
