@@ -181,7 +181,14 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
     let totalReturns = 0;
 
     previewData.forEach((item) => {
-      if (item.isReturn) {
+      // Check if this is a return item
+      // Return if: negative settlement OR refundSubtotal < 0 (minus/negative) OR isReturn flag is true
+      const isReturn =
+        item.isReturn ||
+        item.settlementAmount < 0 ||
+        (item.refundSubtotal !== undefined && item.refundSubtotal < 0);
+
+      if (isReturn) {
         totalReturns += Math.abs(item.settlementAmount);
       } else {
         const qty = Math.round(item.settlementAmount / perItem);
@@ -369,7 +376,12 @@ export default function ExcelImport({ products, onImport }: ExcelImportProps) {
                   const profit = item.settlementAmount - totalCost;
 
                   // Check if return item
-                  const isReturn = item.isReturn || item.settlementAmount < 0;
+                  // Return if: negative settlement OR refundSubtotal < 0 (minus/negative) OR isReturn flag is true
+                  const isReturn =
+                    item.isReturn ||
+                    item.settlementAmount < 0 ||
+                    (item.refundSubtotal !== undefined &&
+                      item.refundSubtotal < 0);
 
                   return (
                     <tr

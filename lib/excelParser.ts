@@ -11,7 +11,8 @@ export interface ExcelIncomeData {
   orderSettledTime?: string;
   totalRevenue?: number;
   variation?: string;
-  isReturn?: boolean; // Flag for returned items (negative settlement)
+  refundSubtotal?: number; // Refund subtotal after seller discounts
+  isReturn?: boolean; // Flag for returned items (negative settlement or negative refundSubtotal)
 }
 
 export interface ParsedExcelResult {
@@ -152,6 +153,13 @@ export function parseTikTokIncomeExcel(file: File): Promise<ParsedExcelResult> {
               row["SKU Name"] ||
               "";
 
+            const refundSubtotalStr =
+              row["Refund subtotal after seller discounts"] ||
+              row["refund_subtotal_after_seller_discounts"] ||
+              row["Refund Subtotal"] ||
+              row["refund_subtotal"] ||
+              "";
+
             // Skip if no settlement amount and no order ID
             if (!settlementAmountStr || (!productName && !orderId)) {
               if (index < 3) {
@@ -179,6 +187,20 @@ export function parseTikTokIncomeExcel(file: File): Promise<ParsedExcelResult> {
               typeof quantityStr === "number"
                 ? quantityStr
                 : parseInt(String(quantityStr)) || 1;
+
+            // Parse refund subtotal
+            let refundSubtotal: number | undefined = undefined;
+            if (refundSubtotalStr && String(refundSubtotalStr).trim() !== "") {
+              const parsedRefund =
+                typeof refundSubtotalStr === "number"
+                  ? refundSubtotalStr
+                  : parseFloat(
+                      String(refundSubtotalStr).replace(/[^0-9.-]/g, "")
+                    );
+              if (!isNaN(parsedRefund)) {
+                refundSubtotal = parsedRefund;
+              }
+            }
 
             // Parse date
             let parsedDate = new Date().toISOString().split("T")[0];
@@ -253,8 +275,11 @@ export function parseTikTokIncomeExcel(file: File): Promise<ParsedExcelResult> {
               });
             }
 
-            // Check if this is a return (negative settlement)
-            const isReturn = settlementAmount < 0;
+            // Check if this is a return
+            // Return if: negative settlement OR refundSubtotal < 0 (minus/negative)
+            const isReturn =
+              settlementAmount < 0 ||
+              (refundSubtotal !== undefined && refundSubtotal < 0);
 
             parsedData.push({
               orderId: String(orderId),
@@ -265,6 +290,7 @@ export function parseTikTokIncomeExcel(file: File): Promise<ParsedExcelResult> {
               orderSettledTime: settledDate,
               totalRevenue,
               variation: variation ? String(variation) : undefined,
+              refundSubtotal,
               isReturn, // Flag for returned items
             });
           } catch (error) {
@@ -357,6 +383,26 @@ export function importExcelIncomeData(
       totalProfit += profit; // Only add non-return profit to total
     }
 
+    // Create transaction notes
+    let notes = "";
+    if (row.isReturn) {
+      notes = `🔄 RETURN | Order ID: ${row.orderId}${
+        row.variation ? ` | ${row.variation}` : ""
+      }`;
+      // Add refund subtotal info if available
+      if (row.refundSubtotal !== undefined && row.refundSubtotal < 0) {
+        notes += `\nRefund Subtotal: Rp ${row.refundSubtotal.toLocaleString(
+          "id-ID"
+        )}`;
+      }
+    } else {
+      notes = row.orderId
+        ? `Order ID: ${row.orderId}${
+            row.variation ? ` | ${row.variation}` : ""
+          }`
+        : row.variation || "";
+    }
+
     // Create transaction
     const transaction: Transaction = {
       id: generateId(),
@@ -367,15 +413,7 @@ export function importExcelIncomeData(
       sellPrice: sellPrice,
       profit: profit,
       date: row.date,
-      notes: row.isReturn
-        ? `🔄 RETURN | Order ID: ${row.orderId}${
-            row.variation ? ` | ${row.variation}` : ""
-          }`
-        : row.orderId
-        ? `Order ID: ${row.orderId}${
-            row.variation ? ` | ${row.variation}` : ""
-          }`
-        : row.variation || undefined,
+      notes: notes || undefined,
       createdAt: new Date().toISOString(),
     };
 

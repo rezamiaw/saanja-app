@@ -54,10 +54,14 @@ export default function TransactionList({
         <tbody>
           {transactions.map((transaction) => {
             // Check if this is a return item
+            // For TikTok Shop: negative settlement or notes contains "RETURN"
+            // For Shopee: negative totalIncome or quantity = 0 or notes contains "RETURN"
             const isReturn =
               transaction.notes?.includes("RETURN") ||
-              transaction.profit === 0 ||
-              transaction.quantity === 0;
+              transaction.notes?.includes("Refund Subtotal") ||
+              transaction.profit <= 0 || // Changed: include negative profit
+              transaction.quantity === 0 ||
+              transaction.sellPrice <= 0; // Changed: include zero sellPrice
 
             // Calculate values
             const totalModal = transaction.buyPrice * transaction.quantity;
@@ -76,7 +80,7 @@ export default function TransactionList({
                 </td>
                 <td className="py-3 px-4">
                   {(() => {
-                    // Extract Order ID from notes if available
+                    // Extract Order ID from notes if available (TikTok Shop)
                     if (
                       transaction.notes &&
                       transaction.notes.includes("Order ID:")
@@ -85,13 +89,25 @@ export default function TransactionList({
                         .split("Order ID:")[1]
                         .split("|")[0]
                         .trim();
+
+                      // Check if this return is from refund subtotal
+                      const hasRefundSubtotal =
+                        transaction.notes?.includes("Refund Subtotal");
+
                       return (
                         <div className="flex items-center gap-2">
                           <p className="font-mono text-xs text-gray-900">
                             {orderId}
                           </p>
                           {isReturn && (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                            <span
+                              className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded cursor-help"
+                              title={
+                                hasRefundSubtotal
+                                  ? "🔄 Return/Refund - Detected from Refund Subtotal (Negative value)"
+                                  : "🔄 Return/Refund - No profit/loss"
+                              }
+                            >
                               🔄 RETURN
                             </span>
                           )}
@@ -99,18 +115,30 @@ export default function TransactionList({
                       );
                     }
 
-                    // Extract Order ID from productName if starts with "Order "
+                    // Extract Order ID from productName if starts with "Order " (TikTok Shop)
                     if (transaction.productName.startsWith("Order ")) {
                       const orderId = transaction.productName
                         .replace("Order ", "")
                         .replace("...", "");
+
+                      // Check if this return is from refund subtotal
+                      const hasRefundSubtotal =
+                        transaction.notes?.includes("Refund Subtotal");
+
                       return (
                         <div className="flex items-center gap-2">
                           <p className="font-mono text-xs text-gray-900">
                             {orderId}
                           </p>
                           {isReturn && (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                            <span
+                              className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded cursor-help"
+                              title={
+                                hasRefundSubtotal
+                                  ? "🔄 Return/Refund - Detected from Refund Subtotal (Negative value)"
+                                  : "🔄 Return/Refund - No profit/loss"
+                              }
+                            >
                               🔄 RETURN
                             </span>
                           )}
@@ -130,7 +158,10 @@ export default function TransactionList({
                             {orderId}
                           </p>
                           {isReturn && (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded">
+                            <span
+                              className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded cursor-help"
+                              title="🔄 Return/Refund - Total Income ≤ 0"
+                            >
                               🔄 RETURN
                             </span>
                           )}
